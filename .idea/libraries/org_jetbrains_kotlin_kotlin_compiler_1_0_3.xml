@@ -1,0 +1,12 @@
+<component name="libraryTable">
+  <library name="org.jetbrains.kotlin:kotlin-compiler:1.0.3" type="repository">
+    <properties maven-id="org.jetbrains.kotlin:kotlin-compiler:1.0.3" />
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler/1.0.3/kotlin-compiler-1.0.3.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler/1.0.3/kotlin-compiler-1.0.3-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
