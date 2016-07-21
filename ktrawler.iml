@@ -11,5 +11,6 @@
     <orderEntry type="library" name="gson-2.3.1" level="project" />
     <orderEntry type="library" name="KotlinJavaRuntime" level="project" />
     <orderEntry type="library" name="org.jetbrains.kotlin:kotlin-compiler:1.0.3" level="project" />
+    <orderEntry type="library" name="args4j:args4j:2.33" level="project" />
   </component>
 </module>

@@ -13,6 +13,10 @@ import org.jetbrains.kotlin.config.addKotlinSourceRoot
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.types.Variance
+import org.kohsuke.args4j.Argument
+import org.kohsuke.args4j.CmdLineException
+import org.kohsuke.args4j.CmdLineParser
+import org.kohsuke.args4j.Option
 import retrofit.RestAdapter
 import retrofit.http.GET
 import retrofit.http.Query
@@ -424,17 +428,38 @@ class Ktrawler(statsOnly: Boolean): KtTreeVisitorVoid() {
     }
 }
 
+class CLI {
+    @Option(name = "-local", usage = "use local repository versions, do not update from GitHub")
+    var local: Boolean = false
+
+    @Option(name = "-stats-only", usage = "don't track individual usages, only their counts")
+    var statsOnly: Boolean = false
+
+    @Option(name = "-max-repo-count", usage = "maximum number of repos to process")
+    var maxRepoCount: Int = 1000000
+
+    @Argument
+    var corpusDirectoryPath: String? = null
+}
+
 fun main(args: Array<String>) {
-    if (args.size == 0) {
-        println("Usage: ktrawler <corpus-directory-path> [-local] [-stats-only] [<max-repo-count>]")
-        return
+    val options = CLI()
+    with(CmdLineParser(options)) {
+        try {
+            parseArgument(*args)
+        }
+        catch (e: CmdLineException) {
+            printUsage()
+            return
+        }
+        if (options.corpusDirectoryPath == null) {
+            printUsage()
+            return
+        }
     }
-    val korpus = Korpus(args[0])
-    var arg = 1
-    val local = if (args.size > 1 && args[1] == "-local") { arg++; true} else false
-    val statsOnly = if (args.size > arg && args[arg] == "-stats-only") { arg++; true } else false
-    val maxCount = if (args.size > arg) Integer.parseInt(args[arg]) else 1000000
-    val ktrawler = Ktrawler(statsOnly)
+
+    val korpus = Korpus(options.corpusDirectoryPath!!)
+    val ktrawler = Ktrawler(options.statsOnly)
     var reposProcessed = 0
 
     val excludedRepos = File("excludedRepos.txt")
@@ -443,11 +468,11 @@ fun main(args: Array<String>) {
     else
         listOf()
 
-    korpus.update(local) { repoPath ->
+    korpus.update(options.local) { repoPath ->
         println("Analyzing repository ${repoPath}")
         if (!excludedRepoList.any { repoPath.endsWith("/" + it) }) {
             ktrawler.analyzeRepository(repoPath)
-            ++reposProcessed < maxCount
+            ++reposProcessed < options.maxRepoCount
         } else {
             true
         }
@@ -464,4 +489,9 @@ fun main(args: Array<String>) {
     }
 
     ktrawler.report()
+}
+
+private fun CmdLineParser.printUsage() {
+    System.err.println("Usage: ktrawler [options] <corpus-directory-path>")
+    printUsage(System.err)
 }
