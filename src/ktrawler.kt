@@ -8,10 +8,9 @@ import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
-import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.config.addKotlinSourceRoot
-import org.jetbrains.kotlin.lexer.JetTokens
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.types.Variance
 import retrofit.RestAdapter
@@ -23,16 +22,16 @@ data class Repo(val full_name: String, val git_url: String)
 
 data class ResultPage(val total_count: Int, val items: List<Repo>)
 
-trait Github {
-    GET("/search/repositories")
-    fun searchRepositories(Query("q") query: String, Query("page") page: Int, Query("per_page") perPage: Int): ResultPage
+interface Github {
+    @GET("/search/repositories")
+    fun searchRepositories(@Query("q") query: String, @Query("page") page: Int, @Query("per_page") perPage: Int): ResultPage
 }
 
 class GithubRepositoryCollector() {
     val restAdapter = RestAdapter.Builder()
         .setEndpoint("https://api.github.com")
         .build()
-    val github = restAdapter.create(javaClass<Github>())
+    val github = restAdapter.create(Github::class.java)
 
     fun processAllKotlinRepositories(callback: (Repo, Int, Int) -> Boolean) {
         var currentPage = 1
@@ -40,9 +39,9 @@ class GithubRepositoryCollector() {
         var processedCount = 0
         var currentRepo = 0
         while (totalCount == -1 || processedCount < totalCount) {
-            var repos = github.searchRepositories("language:kotlin", currentPage++, 100)
+            val repos = github.searchRepositories("language:kotlin", currentPage++, 100)
             totalCount = repos.total_count
-            processedCount += repos.items.size()
+            processedCount += repos.items.size
             for (it in repos.items) {
                 currentRepo++
                 if (!callback(it, currentRepo, totalCount)) return
@@ -56,7 +55,7 @@ class Korpus(val baseDir: String) {
         val collector = GithubRepositoryCollector()
         collector.processAllKotlinRepositories { url, current, total ->
             print("[$current/$total] ")
-            (local || cloneOrUpdateRepository(url)) && callback(pathTo(url).getPath())
+            (local || cloneOrUpdateRepository(url)) && callback(pathTo(url).path)
         }
     }
 
@@ -108,22 +107,22 @@ class FeatureUsageCounter(val name: String, val trackUsages: Boolean = false) {
         count++
         projects.add(projectPath)
         if (trackUsages) {
-            val path = usage.getContainingFile()?.getVirtualFile()?.getPath()
-            val doc = PsiDocumentManager.getInstance(usage.getProject()).getDocument(usage.getContainingFile())
-            val line = if (doc != null) doc.getLineNumber(usage.getTextRange().getStartOffset()) + 1 else 0
-            usages.add(FeatureUsage(projectPath, path?.trimLeading(projectPath), line))
+            val path = usage.containingFile?.virtualFile?.path
+            val doc = PsiDocumentManager.getInstance(usage.project).getDocument(usage.containingFile)
+            val line = if (doc != null) doc.getLineNumber(usage.textRange.startOffset) + 1 else 0
+            usages.add(FeatureUsage(projectPath, path?.removePrefix(projectPath), line))
         }
     }
 
     fun report() {
-        println("$name: $count in ${projects.size()} projects")
+        println("$name: $count in ${projects.size} projects")
         usages.forEach {
             println("  Project: ${it.project}; path: ${it.file}:${it.line}")
         }
     }
 }
 
-class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
+class Ktrawler(statsOnly: Boolean): KtTreeVisitorVoid() {
     var currentRepo: String? = null
     var repositoriesAnalyzed = 0
     var filesAnalyzed = 0
@@ -170,17 +169,14 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
     fun analyzeRepository(rootPath: String) {
         currentRepo = rootPath
         repositoriesAnalyzed++
-        val root = object : Disposable {
-            override fun dispose() {
-            }
-        }
+        val root = Disposable { }
         val configuration = CompilerConfiguration()
         configuration.addKotlinSourceRoot(rootPath)
         val environment = KotlinCoreEnvironment.createForProduction(root, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
         environment.getSourceFiles().forEach {
-            if ("/testData/" !in it.getVirtualFile().getPath()) {
+            if ("/testData/" !in it.virtualFile.path) {
                 filesAnalyzed++
-                linesAnalyzed += PsiDocumentManager.getInstance(it.getProject()).getDocument(it).getLineCount()
+                linesAnalyzed += PsiDocumentManager.getInstance(it.project).getDocument(it)!!.lineCount
                 it.acceptChildren(this)
             }
         }
@@ -194,10 +190,10 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
         syntaxErrors.increment(element)
     }
 
-    private fun JetClass.hasEnumEntriesAndMembersMixed(): Boolean {
+    private fun KtClass.hasEnumEntriesAndMembersMixed(): Boolean {
         var insideEntries = true
-        for (declaration in getDeclarations()) {
-            if (declaration is JetEnumEntry) {
+        for (declaration in declarations) {
+            if (declaration is KtEnumEntry) {
                 if (!insideEntries) return true
             }
             else {
@@ -207,7 +203,7 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
         return false
     }
 
-    override fun visitClass(klass: JetClass) {
+    override fun visitClass(klass: KtClass) {
         super.visitClass(klass)
         classes.increment(klass)
         if (klass.isInner()) {
@@ -221,7 +217,7 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
         }
         if (klass.isEnum()) {
             enums.increment(klass)
-            if (klass.getPrimaryConstructorParameters().size() > 0) {
+            if (klass.getPrimaryConstructorParameters().size > 0) {
                 enumsWithConstructorParameters.increment(klass)
             }
             if (klass.hasEnumEntriesAndMembersMixed()) {
@@ -230,17 +226,17 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
         }
     }
 
-    private fun JetClass.hasOuterTypeParameters(): Boolean {
+    private fun KtClass.hasOuterTypeParameters(): Boolean {
         var cls = this
         while (true) {
-            val parent = PsiTreeUtil.getParentOfType(cls, javaClass<JetClass>(), true)
+            val parent = PsiTreeUtil.getParentOfType(cls, KtClass::class.java, true)
             if (parent == null) return false
-            if (parent.getTypeParameters().isNotEmpty()) return true
+            if (parent.typeParameters.isNotEmpty()) return true
             cls = parent
         }
     }
 
-    override fun visitEnumEntry(enumEntry: JetEnumEntry) {
+    override fun visitEnumEntry(enumEntry: KtEnumEntry) {
         super.visitEnumEntry(enumEntry)
         enumEntries.increment(enumEntry)
         if (enumEntry.getBody() != null) {
@@ -248,7 +244,7 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
         }
     }
 
-    override fun visitObjectDeclaration(declaration: JetObjectDeclaration) {
+    override fun visitObjectDeclaration(declaration: KtObjectDeclaration) {
         super.visitObjectDeclaration(declaration)
         objects.increment(declaration)
         if (declaration.isTopLevel()) {
@@ -259,126 +255,126 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
         }
     }
 
-    override fun visitNamedFunction(function: JetNamedFunction) {
+    override fun visitNamedFunction(function: KtNamedFunction) {
         super.visitNamedFunction(function)
         functions.increment(function)
-        if (function.getAnnotationEntries().any { it.getCalleeExpression().getText() == "inline" }) {
+        if (function.annotationEntries.any { it.calleeExpression!!.text == "inline" }) {
             inlineFunctions.increment(function)
         }
-        if (function.getReceiverTypeReference() != null) {
+        if (function.receiverTypeReference != null) {
             extensionFunctions.increment(function)
-            if (PsiTreeUtil.getParentOfType(function, javaClass<JetClass>()) != null) {
+            if (PsiTreeUtil.getParentOfType(function, KtClass::class.java) != null) {
                 extensionFunctionsInClasses.increment(function)
             }
         }
     }
 
-    override fun visitDelegationByExpressionSpecifier(specifier: JetDelegatorByExpressionSpecifier) {
-        super.visitDelegationByExpressionSpecifier(specifier)
-        delegationBySpecifiers.increment(specifier);
+    override fun visitDelegatedSuperTypeEntry(specifier: KtDelegatedSuperTypeEntry) {
+        super.visitDelegatedSuperTypeEntry(specifier)
+        delegationBySpecifiers.increment(specifier)
     }
 
-    override fun visitFunctionLiteralExpression(expression: JetFunctionLiteralExpression) {
-        super.visitFunctionLiteralExpression(expression)
+    override fun visitLambdaExpression(expression: KtLambdaExpression) {
+        super.visitLambdaExpression(expression)
         lambdas.increment(expression)
         if (expression.hasDeclaredReturnType()) {
             lambdasWithDeclaredReturnType.increment(expression)
         }
     }
 
-    override fun visitLabeledExpression(expression: JetLabeledExpression) {
+    override fun visitLabeledExpression(expression: KtLabeledExpression) {
         super.visitLabeledExpression(expression)
         labeledExpressions.increment(expression)
     }
 
-    override fun visitBreakExpression(expression: JetBreakExpression) {
+    override fun visitBreakExpression(expression: KtBreakExpression) {
         super.visitBreakExpression(expression)
         if (expression.getTargetLabel() != null) {
             qualifiedBreakContinue.increment(expression)
         }
     }
 
-    override fun visitContinueExpression(expression: JetContinueExpression) {
+    override fun visitContinueExpression(expression: KtContinueExpression) {
         super.visitContinueExpression(expression)
         if (expression.getTargetLabel() != null) {
             qualifiedBreakContinue.increment(expression)
         }
     }
 
-    override fun visitReturnExpression(expression: JetReturnExpression) {
+    override fun visitReturnExpression(expression: KtReturnExpression) {
         super.visitReturnExpression(expression)
         if (expression.getTargetLabel() != null) {
             returnWithLabel.increment(expression)
         }
     }
 
-    override fun visitWhileExpression(expression: JetWhileExpression) {
+    override fun visitWhileExpression(expression: KtWhileExpression) {
         super.visitWhileExpression(expression)
         whileLoops.increment(expression)
     }
 
-    override fun visitDoWhileExpression(expression: JetDoWhileExpression) {
+    override fun visitDoWhileExpression(expression: KtDoWhileExpression) {
         super.visitDoWhileExpression(expression)
         doWhileLoops.increment(expression)
     }
 
-    override fun visitWhenExpression(expression: JetWhenExpression) {
+    override fun visitWhenExpression(expression: KtWhenExpression) {
         super.visitWhenExpression(expression)
-        if (expression.getSubjectExpression() != null) {
+        if (expression.subjectExpression != null) {
             whenWithExpression.increment(expression)
         } else {
             whenWithoutExpression.increment(expression)
         }
     }
 
-    override fun visitWhenConditionInRange(condition: JetWhenConditionInRange) {
+    override fun visitWhenConditionInRange(condition: KtWhenConditionInRange) {
         super.visitWhenConditionInRange(condition)
         whenConditionInRange.increment(condition)
     }
 
-    override fun visitProperty(property: JetProperty) {
+    override fun visitProperty(property: KtProperty) {
         super.visitProperty(property)
-        if (property.isVar()) {
+        if (property.isVar) {
             vars.increment(property)
         } else {
             vals.increment(property)
         }
     }
 
-    override fun visitTypeParameter(parameter: JetTypeParameter) {
+    override fun visitTypeParameter(parameter: KtTypeParameter) {
         super.visitTypeParameter(parameter)
         typeParameters.increment(parameter)
-        if (parameter.getVariance() != Variance.INVARIANT) {
+        if (parameter.variance != Variance.INVARIANT) {
             typeParametersWithVariance.increment(parameter)
         }
     }
 
-    override fun visitTypeProjection(typeProjection: JetTypeProjection) {
+    override fun visitTypeProjection(typeProjection: KtTypeProjection) {
         super.visitTypeProjection(typeProjection)
         typeArguments.increment(typeProjection)
-        when (typeProjection.getProjectionKind()) {
-            JetProjectionKind.IN, JetProjectionKind.OUT -> typeArgumentsWithVariance.increment(typeProjection)
-            JetProjectionKind.STAR -> typeArgumentsWithStar.increment(typeProjection)
+        when (typeProjection.projectionKind) {
+            KtProjectionKind.IN, KtProjectionKind.OUT -> typeArgumentsWithVariance.increment(typeProjection)
+            KtProjectionKind.STAR -> typeArgumentsWithStar.increment(typeProjection)
         }
     }
 
-    override fun visitBinaryExpression(expression: JetBinaryExpression) {
+    override fun visitBinaryExpression(expression: KtBinaryExpression) {
         super.visitBinaryExpression(expression)
-        if (expression.getOperationToken() == JetTokens.RANGE) {
+        if (expression.operationToken == KtTokens.RANGE) {
             rangeOperators.increment(expression)
         }
     }
 
-    override fun visitBinaryWithTypeRHSExpression(expression: JetBinaryExpressionWithTypeRHS) {
+    override fun visitBinaryWithTypeRHSExpression(expression: KtBinaryExpressionWithTypeRHS) {
         super.visitBinaryWithTypeRHSExpression(expression)
-        if (expression.getOperationReference().getText() == ":") {
+        if (expression.operationReference.text == ":") {
             typesAfterColon.increment(expression)
         }
     }
 
     override fun visitElement(element: PsiElement) {
         super.visitElement(element)
-        if (element.getNode().getElementType() == JetTokens.FIELD_IDENTIFIER) {
+        if (element.node.elementType == KtTokens.FIELD_IDENTIFIER) {
             backingFields.increment(element)
         }
     }
@@ -429,21 +425,21 @@ class Ktrawler(val statsOnly: Boolean): JetTreeVisitorVoid() {
 }
 
 fun main(args: Array<String>) {
-    if (args.size() == 0) {
+    if (args.size == 0) {
         println("Usage: ktrawler <corpus-directory-path> [-local] [-stats-only] [<max-repo-count>]")
         return
     }
     val korpus = Korpus(args[0])
     var arg = 1
-    val local = if (args.size() > 1 && args[1] == "-local") { arg++; true} else false
-    val statsOnly = if (args.size() > arg && args[arg] == "-stats-only") { arg++; true } else false
-    val maxCount = if (args.size() > arg) Integer.parseInt(args[arg]) else 1000000
+    val local = if (args.size > 1 && args[1] == "-local") { arg++; true} else false
+    val statsOnly = if (args.size > arg && args[arg] == "-stats-only") { arg++; true } else false
+    val maxCount = if (args.size > arg) Integer.parseInt(args[arg]) else 1000000
     val ktrawler = Ktrawler(statsOnly)
     var reposProcessed = 0
 
     val excludedRepos = File("excludedRepos.txt")
     val excludedRepoList = if (excludedRepos.exists())
-        excludedRepos.readLines().map { it.trim() }.filter { it.length() > 0 }
+        excludedRepos.readLines().map { it.trim() }.filter { it.length > 0 }
     else
         listOf()
 
@@ -460,7 +456,7 @@ fun main(args: Array<String>) {
     val privateRepo = File("privateRepos.txt")
     if (privateRepo.exists()) {
         privateRepo.readLines().forEach {
-            if (it.trim().length() > 0){
+            if (it.trim().length > 0){
                 println("Analyzing private repository $it")
                 ktrawler.analyzeRepository(it)
             }
