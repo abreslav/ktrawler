@@ -435,6 +435,9 @@ class CLI {
     @Option(name = "-stats-only", usage = "don't track individual usages, only their counts")
     var statsOnly: Boolean = false
 
+    @Option(name = "-only-analyze", usage = "only analyze a local corpus, no interaction with GitHub")
+    var onlyAnalyze: Boolean = false
+
     @Option(name = "-max-repo-count", usage = "maximum number of repos to process")
     var maxRepoCount: Int = 1000000
 
@@ -458,32 +461,36 @@ fun main(args: Array<String>) {
         }
     }
 
-    val korpus = Korpus(options.corpusDirectoryPath!!)
     val ktrawler = Ktrawler(options.statsOnly)
-    var reposProcessed = 0
+    if (options.onlyAnalyze) {
+        ktrawler.analyzeRepository(options.corpusDirectoryPath!!)
+    } else {
+        val korpus = Korpus(options.corpusDirectoryPath!!)
+        var reposProcessed = 0
 
-    val excludedRepos = File("excludedRepos.txt")
-    val excludedRepoList = if (excludedRepos.exists())
-        excludedRepos.readLines().map { it.trim() }.filter { it.length > 0 }
-    else
-        listOf()
+        val excludedRepos = File("excludedRepos.txt")
+        val excludedRepoList = if (excludedRepos.exists())
+            excludedRepos.readLines().map { it.trim() }.filter { it.length > 0 }
+        else
+            listOf()
 
-    korpus.update(options.local) { repoPath ->
-        println("Analyzing repository ${repoPath}")
-        if (!excludedRepoList.any { repoPath.endsWith("/" + it) }) {
-            ktrawler.analyzeRepository(repoPath)
-            ++reposProcessed < options.maxRepoCount
-        } else {
-            true
+        korpus.update(options.local) { repoPath ->
+            println("Analyzing repository ${repoPath}")
+            if (!excludedRepoList.any { repoPath.endsWith("/" + it) }) {
+                ktrawler.analyzeRepository(repoPath)
+                ++reposProcessed < options.maxRepoCount
+            } else {
+                true
+            }
         }
-    }
 
-    val privateRepo = File("privateRepos.txt")
-    if (privateRepo.exists()) {
-        privateRepo.readLines().forEach {
-            if (it.trim().length > 0){
-                println("Analyzing private repository $it")
-                ktrawler.analyzeRepository(it)
+        val privateRepo = File("privateRepos.txt")
+        if (privateRepo.exists()) {
+            privateRepo.readLines().forEach {
+                if (it.trim().length > 0) {
+                    println("Analyzing private repository $it")
+                    ktrawler.analyzeRepository(it)
+                }
             }
         }
     }
