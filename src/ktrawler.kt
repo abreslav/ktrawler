@@ -160,6 +160,10 @@ class Ktrawler(statsOnly: Boolean): KtTreeVisitorVoid() {
     val whenConditionInRange = FeatureUsageCounter("'in' condition in 'when'")
     val primaryConstructorVisibility = FeatureUsageCounter("Primary constructors with non-default visibility")
     val vals = FeatureUsageCounter("'val' declarations")
+    val valsWithGetter = FeatureUsageCounter("'val' declarations with non-default getter")
+    val overrideValsWithGetter = FeatureUsageCounter("'override val' declarations with non-default getter")
+    val valsWithGetterExpressionBody = FeatureUsageCounter("'val' declarations with non-default getter with expression body")
+    val overrideValsWithGetterExpressionBody = FeatureUsageCounter("'override val' declarations with non-default getter with expression body")
     val vars = FeatureUsageCounter("'var' declarations")
     val typeParameters = FeatureUsageCounter("Type parameters")
     val typeParametersWithVariance = FeatureUsageCounter("Type parameters with variance")
@@ -342,6 +346,19 @@ class Ktrawler(statsOnly: Boolean): KtTreeVisitorVoid() {
             vars.increment(property)
         } else {
             vals.increment(property)
+            val getter = property.getter
+            if (getter != null && getter.hasBody()) {
+                valsWithGetter.increment(property)
+                if (!getter.hasBlockBody()) {
+                    valsWithGetterExpressionBody.increment(property)
+                }
+                if (property.hasModifier(KtTokens.OVERRIDE_KEYWORD)) {
+                    overrideValsWithGetter.increment(property)
+                    if (!getter.hasBlockBody()) {
+                        overrideValsWithGetterExpressionBody.increment(property)
+                    }
+                }
+            }
         }
     }
 
@@ -417,6 +434,10 @@ class Ktrawler(statsOnly: Boolean): KtTreeVisitorVoid() {
         whenConditionInRange.report()
         vals.report()
         vars.report()
+        valsWithGetter.report()
+        valsWithGetterExpressionBody.report()
+        overrideValsWithGetter.report()
+        overrideValsWithGetterExpressionBody.report()
         typeParameters.report()
         typeParametersWithVariance.report()
         typeArguments.report()
