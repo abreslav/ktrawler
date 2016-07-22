@@ -177,7 +177,11 @@ class Ktrawler(statsOnly: Boolean): KtTreeVisitorVoid() {
     fun analyzeRepository(rootPath: String) {
         currentRepo = rootPath
         repositoriesAnalyzed++
-        val root = Disposable { }
+        val root = object : Disposable {
+            override fun dispose() {
+                // Don't replace this with a lambda: it won't work, because lambdas are cached
+            }
+        }
         val configuration = CompilerConfiguration()
         configuration.addKotlinSourceRoot(rootPath)
         val environment = KotlinCoreEnvironment.createForProduction(root, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
